@@ -34,7 +34,7 @@ If no chunk is close enough to the question, the language model is never called 
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/doc-qa-rag.git
+git clone https://github.com/vedasaikanduri/doc-qa-rag.git
 cd doc-qa-rag
 
 python3.12 -m venv .venv
