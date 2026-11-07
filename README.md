@@ -84,11 +84,38 @@ docqa/
   pipeline.py   indexing and question answering
 ```
 
+## Evaluation
+
+`docqa/evaluate.py` checks retrieval against a hand-written test set (`eval/questions.json`): 19 questions whose answers are on known pages, and 8 off-topic questions the document does not answer (3 clearly unrelated, 5 nearby biology topics that sound relevant but are not covered). The test set was written for one document (AQA A-level Biology notes, not included in this repo), so the page numbers only match that PDF. To reuse the script, replace the questions with ones for your own document.
+
+```bash
+python -m docqa.evaluate
+```
+
+Results with `chunk_size=1000`, `chunk_overlap=200`, `nomic-embed-text` and the top 4 chunks:
+
+- The correct page was in the top 4 for **19/19** answerable questions.
+- Cutoff sweep (answerable questions kept / off-topic questions wrongly passed):
+
+| Cutoff | Answerable kept | Off-topic passed |
+|---|---|---|
+| 0.6 | 14/19 | 0/8 |
+| 0.7 | 17/19 | 0/8 |
+| **0.8** | **19/19** | **1/8** |
+| 0.9 | 19/19 | 5/8 |
+| 1.0 | 19/19 | 5/8 |
+| 1.1 | 19/19 | 6/8 |
+| 1.2 | 19/19 | 8/8 |
+
+`MAX_DISTANCE` is set to 0.8. The one off-topic question that still passes the cutoff (kidney filtration, distance 0.776) is rejected by the language model: in an end-to-end test it replied that it could not find the answer. The cutoff catches clearly unrelated questions, and the strict prompt catches the borderline ones.
+
+Caveat: the cutoff was tuned on the same questions it was measured on, and the margin is small, so treat 0.8 as a good starting point rather than a proven value.
+
 ## Limitations
 
 - One PDF at a time (re-indexing replaces the previous index)
 - Text-based PDFs only; scanned documents would need OCR
-- `MAX_DISTANCE` was tuned on a handful of example questions, not a proper test set
+- `MAX_DISTANCE` was tuned on a small test set of 27 questions written by me, so it may not generalise to other documents
 - Text is split per page, so an idea that runs across a page break is cut there
 - The *Sources* list shows the chunks that were retrieved, not necessarily every one the model used
 

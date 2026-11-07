@@ -7,7 +7,7 @@ CHAT_MODEL = "gemma3:12b"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 TOP_K = 4
-MAX_DISTANCE = 1.0
+MAX_DISTANCE = 0.8
 
 NOT_FOUND_MESSAGE = "I couldn't find that in the document."
 
