@@ -14,11 +14,11 @@ A command-line tool that answers questions about a PDF using Retrieval-Augmented
 
 ```
 INDEXING   PDF -> pypdf (one Document per page)
-               -> RecursiveCharacterTextSplitter (1000 chars, 200 overlap)
+               -> RecursiveCharacterTextSplitter (500 chars, 100 overlap)
                -> nomic-embed-text (vectors)
                -> ChromaDB (saved to disk)
 
-ASKING     question -> embed -> 4 nearest chunks from ChromaDB
+ASKING     question -> embed -> 8 nearest chunks from ChromaDB
                     -> drop chunks above the distance cutoff
                     -> prompt (question + chunks + rules)
                     -> gemma3:12b -> answer with page citations
@@ -82,46 +82,77 @@ docqa/
   config.py     settings and the system prompt
   loader.py     PDF to per-page Documents
   pipeline.py   indexing and question answering
+  evaluate.py   retrieval evaluation and cutoff sweep
+  experiments.py  compares chunk sizes
+eval/
+  questions.json  hand-written test questions
 ```
 
-## Evaluation
+## Evaluation and experiments
 
-`docqa/evaluate.py` checks retrieval against a hand-written test set (`eval/questions.json`): 19 questions whose answers are on known pages, and 8 off-topic questions the document does not answer (3 clearly unrelated, 5 nearby biology topics that sound relevant but are not covered). The test set was written for one document (AQA A-level Biology notes, not included in this repo), so the page numbers only match that PDF. To reuse the script, replace the questions with ones for your own document.
+`docqa/evaluate.py` checks retrieval against a hand-written test set (`eval/questions.json`): 19 questions whose answers are on known pages, and 8 off-topic questions the document does not answer (3 clearly unrelated, 5 nearby biology topics that sound relevant but are not covered). The test set was written for one document (AQA A-level Biology notes, not included in this repo), so the page numbers only match that PDF. To reuse the scripts, replace the questions with ones for your own document.
 
 ```bash
-python -m docqa.evaluate
+python -m docqa.evaluate      # retrieval check and cutoff sweep
+python -m docqa.experiments   # compares chunk sizes
 ```
 
-Results with `chunk_size=1000`, `chunk_overlap=200`, `nomic-embed-text` and the top 4 chunks:
+### Experiment 1: chunk size
 
-- The correct page was in the top 4 for **19/19** answerable questions.
-- Cutoff sweep (answerable questions kept / off-topic questions wrongly passed):
+`docqa/experiments.py` builds a temporary index for each chunk size (overlap set to 20% of the size) and measures two things. **hit@k** is the number of answerable questions where a chunk from the correct page appears in the top k results. The **margin** is the gap between the worst-scoring answerable question and the closest-scoring off-topic question (distance, lower means closer). A positive margin means some cutoff separates the two groups perfectly, and a bigger margin means a safer cutoff.
+
+| Chunk size | Chunks | hit@1 | hit@2 | hit@4 | hit@6 | Worst answerable | Closest off-topic | Margin |
+|---|---|---|---|---|---|---|---|---|
+| 500 | 89 | 17/19 | 19/19 | 19/19 | 19/19 | 0.619 | 0.748 | +0.128 |
+| 1000 | 44 | 19/19 | 19/19 | 19/19 | 19/19 | 0.734 | 0.776 | +0.042 |
+| 1500 | 31 | 18/19 | 19/19 | 19/19 | 19/19 | 0.792 | 0.763 | -0.030 |
+
+- The correct page was in the top 2 results for every question at every chunk size, so finding the right page was never the problem. Only hit@1 differs, by one or two questions, which is a hint rather than strong evidence.
+- The margin separated the settings best. At 1500 the two groups overlap, so no cutoff can work. At 500 the gap is about three times wider than at 1000.
+- Each margin depends on just two questions (the worst answerable and the closest off-topic), so it is fragile.
+
+### Experiment 2: retrieval depth (TOP_K)
+
+Because the correct page is always found within the top 2, `TOP_K` mostly controls how much context the language model receives. With 500-character chunks, `TOP_K=8` gives roughly the same amount of text as `TOP_K=4` did with 1000-character chunks, so I changed both together.
+
+### Final settings and end-to-end check
+
+Chosen settings: chunk size 500, overlap 100, `TOP_K=8`, `MAX_DISTANCE=0.7`. The cutoff sweep with these settings (answerable questions kept / off-topic questions wrongly passed):
 
 | Cutoff | Answerable kept | Off-topic passed |
 |---|---|---|
-| 0.6 | 14/19 | 0/8 |
-| 0.7 | 17/19 | 0/8 |
-| **0.8** | **19/19** | **1/8** |
+| 0.6 | 17/19 | 0/8 |
+| **0.7** | **19/19** | **0/8** |
+| 0.8 | 19/19 | 2/8 |
 | 0.9 | 19/19 | 5/8 |
 | 1.0 | 19/19 | 5/8 |
 | 1.1 | 19/19 | 6/8 |
 | 1.2 | 19/19 | 8/8 |
 
-`MAX_DISTANCE` is set to 0.8. The one off-topic question that still passes the cutoff (kidney filtration, distance 0.776) is rejected by the language model: in an end-to-end test it replied that it could not find the answer. The cutoff catches clearly unrelated questions, and the strict prompt catches the borderline ones.
+I also read the full answers to a few questions before and after the change (judged by eye, not a systematic measurement):
 
-Caveat: the cutoff was tuned on the same questions it was measured on, and the margin is small, so treat 0.8 as a good starting point rather than a proven value.
+- **Off-topic:** with the earlier settings (1000 / top 4 / cutoff 0.8), a nearby off-topic question (kidney filtration) got past the cutoff and was refused only by the language model. With the final settings the cutoff blocks it before the model is called.
+- **Broad question** ("how do plants move water?"): the answer became more complete, adding root pressure and cohesion.
+- **Narrow question** ("what is the job of the sinoatrial node?"): the answer became shorter and lost a detail it used to include. My guess, which I have not verified, is that the missing sentence sits in a neighbouring chunk that falls just outside the cutoff.
+
+### Caveats
+
+- The cutoff and chunk size were tuned on the same 27 questions they were measured on, so the numbers are optimistic.
+- One document and a small test set. The settings may not transfer to other documents.
+- The evaluation checks which page is retrieved, not whether the final answer is complete or correct.
 
 ## Limitations
 
 - One PDF at a time (re-indexing replaces the previous index)
 - Text-based PDFs only; scanned documents would need OCR
 - `MAX_DISTANCE` was tuned on a small test set of 27 questions written by me, so it may not generalise to other documents
+- Smaller chunks plus a strict cutoff can make answers to narrow questions shorter, because neighbouring chunks just outside the cutoff are dropped
 - Text is split per page, so an idea that runs across a page break is cut there
 - The *Sources* list shows the chunks that were retrieved, not necessarily every one the model used
 
 ## Roadmap
 
-- Evaluation script to measure retrieval quality
+- Use the cutoff only to decide whether to answer, then pass all top-K chunks to the model (may restore detail lost to smaller chunks)
 - Support for multiple PDFs
 - Web interface
 

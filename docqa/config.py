@@ -4,10 +4,10 @@ DB_DIR = "chroma_db"
 EMBED_MODEL = "nomic-embed-text"
 CHAT_MODEL = "gemma3:12b"
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-TOP_K = 4
-MAX_DISTANCE = 0.8
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
+TOP_K = 8
+MAX_DISTANCE = 0.7
 
 NOT_FOUND_MESSAGE = "I couldn't find that in the document."
 
