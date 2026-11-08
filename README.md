@@ -5,15 +5,16 @@ A command-line tool that answers questions about a PDF using Retrieval-Augmented
 ## Features
 
 - **Fully local:** Ollama runs both the embedding model and the chat model
-- **Page citations:** every answer says which pages it came from
+- **File and page citations:** every answer says which file and page it came from, written by code rather than the model, so they cannot be misspelt or invented
 - **Stays on topic:** a distance cutoff plus a strict prompt make it refuse questions the document can't answer
-- **Persistent index:** index a PDF once, ask as many questions as you like
+- **Multiple PDFs:** index a single file or a whole folder
+- **Persistent index:** index your PDFs once, ask as many questions as you like
 - **Clean structure:** all settings live in one config file
 
 ## How it works
 
 ```
-INDEXING   PDF -> pypdf (one Document per page)
+INDEXING   PDFs -> pypdf (one Document per page)
                -> RecursiveCharacterTextSplitter (500 chars, 100 overlap)
                -> nomic-embed-text (vectors)
                -> ChromaDB (saved to disk)
@@ -21,7 +22,8 @@ INDEXING   PDF -> pypdf (one Document per page)
 ASKING     question -> embed -> 8 nearest chunks from ChromaDB
                     -> drop chunks above the distance cutoff
                     -> prompt (question + chunks + rules)
-                    -> gemma3:12b -> answer with page citations
+                    -> gemma3:12b -> answer citing numbered passages
+                    -> code swaps passage numbers for real (file, page)
 ```
 
 If no chunk is close enough to the question, the language model is never called and the tool says it couldn't find the answer.
@@ -47,10 +49,11 @@ ollama pull gemma3:12b
 
 ## Usage
 
-Put a text-based PDF in the `data/` folder, then index it and ask questions:
+Put one or more text-based PDFs in the `data/` folder, then index them and ask questions. Indexing rebuilds the index from scratch each time:
 
 ```bash
-python -m docqa index data/your-file.pdf
+python -m docqa index data/your-file.pdf   # one PDF
+python -m docqa index data                 # every PDF in the folder
 python -m docqa ask "your question here"
 ```
 
@@ -90,7 +93,7 @@ eval/
 
 ## Evaluation and experiments
 
-`docqa/evaluate.py` checks retrieval against a hand-written test set (`eval/questions.json`): 19 questions whose answers are on known pages, and 8 off-topic questions the document does not answer (3 clearly unrelated, 5 nearby biology topics that sound relevant but are not covered). The test set was written for one document (AQA A-level Biology notes, not included in this repo), so the page numbers only match that PDF. To reuse the scripts, replace the questions with ones for your own document.
+`docqa/evaluate.py` checks retrieval against a hand-written test set (`eval/questions.json`): 19 questions whose answers are on known pages, and 8 off-topic questions the document does not answer (3 clearly unrelated, 5 nearby biology topics that sound relevant but are not covered). The test set was written for one document (AQA A-level Biology notes, not included in this repo), so the page numbers only match that PDF. To reuse the scripts, replace the questions with ones for your own document. The scripts check page numbers only, so index just the document the questions were written for first (for example `python -m docqa index data/sample.pdf`), otherwise pages from other files can interfere.
 
 ```bash
 python -m docqa.evaluate      # retrieval check and cutoff sweep
@@ -141,9 +144,16 @@ I also read the full answers to a few questions before and after the change (jud
 - One document and a small test set. The settings may not transfer to other documents.
 - The evaluation checks which page is retrieved, not whether the final answer is complete or correct.
 
+## Design notes
+
+**Citations are written by code, not by the model.** An early version asked the model to cite `(file, page)` itself. It copied the example from the prompt instead of reading the real label: first it cited a file name that did not exist, and when the example was changed to a placeholder it printed the placeholder literally. Now each retrieved chunk is given a number, the model cites numbers like `[3]`, and the code replaces each number with the real file and page from the chunk's metadata. A citation can no longer be misspelt or invented.
+
+**Two layers keep answers on topic.** A distance cutoff stops clearly unrelated questions before the model is called, and a strict prompt makes the model refuse when the retrieved text does not answer the question.
+
 ## Limitations
 
-- One PDF at a time (re-indexing replaces the previous index)
+- Re-indexing rebuilds the whole index, so adding one file means re-embedding all of them
+- Citations depend on the model using the passage numbers it is given; a number that does not match a passage is left as written
 - Text-based PDFs only; scanned documents would need OCR
 - `MAX_DISTANCE` was tuned on a small test set of 27 questions written by me, so it may not generalise to other documents
 - Smaller chunks plus a strict cutoff can make answers to narrow questions shorter, because neighbouring chunks just outside the cutoff are dropped
@@ -153,7 +163,7 @@ I also read the full answers to a few questions before and after the change (jud
 ## Roadmap
 
 - Use the cutoff only to decide whether to answer, then pass all top-K chunks to the model (may restore detail lost to smaller chunks)
-- Support for multiple PDFs
+- Index new files without rebuilding the whole index
 - Web interface
 
 ## Note on documents
