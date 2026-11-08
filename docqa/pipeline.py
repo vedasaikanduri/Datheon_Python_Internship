@@ -1,5 +1,4 @@
 import re
-import shutil
 from pathlib import Path
 
 from langchain_chroma import Chroma
@@ -59,8 +58,12 @@ def build_index(path):
     )
     chunks = splitter.split_documents(pages)
 
+    # Clear the old index by deleting its collection, not the folder, so this
+    # also works inside a long-running program such as the web app
     if Path(config.DB_DIR).exists():
-        shutil.rmtree(config.DB_DIR)
+        Chroma(
+            persist_directory=config.DB_DIR, embedding_function=_embeddings()
+        ).delete_collection()
 
     Chroma.from_documents(
         documents=chunks,

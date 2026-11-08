@@ -9,6 +9,7 @@ A command-line tool that answers questions about a PDF using Retrieval-Augmented
 - **Stays on topic:** a distance cutoff plus a strict prompt make it refuse questions the document can't answer
 - **Multiple PDFs:** index a single file or a whole folder
 - **Persistent index:** index your PDFs once, ask as many questions as you like
+- **Web interface:** a Streamlit chat page with PDF upload and an expandable list of the files and pages each answer drew on
 - **Clean structure:** all settings live in one config file
 
 ## How it works
@@ -66,6 +67,14 @@ I couldn't find that in the document.
 
 Run `python -m docqa --help` for all commands.
 
+### Web interface
+
+```bash
+streamlit run app.py
+```
+
+This opens a chat page in your browser (http://localhost:8501). Upload one or more PDFs in the sidebar, click **Index documents**, then ask questions. Each answer has a **Retrieved from** box listing the files and pages the passages came from. Uploaded files are saved to a local `uploads/` folder, which is git-ignored.
+
 ## Configuration
 
 Edit `docqa/config.py`:
@@ -80,6 +89,7 @@ Edit `docqa/config.py`:
 ## Project structure
 
 ```
+app.py             Streamlit web interface
 docqa/
   __main__.py   command-line interface
   config.py     settings and the system prompt
@@ -148,12 +158,16 @@ I also read the full answers to a few questions before and after the change (jud
 
 **Citations are written by code, not by the model.** An early version asked the model to cite `(file, page)` itself. It copied the example from the prompt instead of reading the real label: first it cited a file name that did not exist, and when the example was changed to a placeholder it printed the placeholder literally. Now each retrieved chunk is given a number, the model cites numbers like `[3]`, and the code replaces each number with the real file and page from the chunk's metadata. A citation can no longer be misspelt or invented.
 
+**Logic and interface are separate.** `docqa/pipeline.py` returns answers instead of printing them, so the command-line tool and the Streamlit app are thin layers over the same functions. Re-indexing clears the Chroma collection rather than deleting its folder, to avoid problems with a long-running app that may still have the database open.
+
 **Two layers keep answers on topic.** A distance cutoff stops clearly unrelated questions before the model is called, and a strict prompt makes the model refuse when the retrieved text does not answer the question.
 
 ## Limitations
 
 - Re-indexing rebuilds the whole index, so adding one file means re-embedding all of them
 - Citations depend on the model using the passage numbers it is given; a number that does not match a passage is left as written
+- The web app shows the chat history but answers each question on its own, with no conversation memory, so follow-ups such as "why is that?" will not work
+- When several retrieved chunks come from the same page, the same citation can appear more than once in an answer
 - Text-based PDFs only; scanned documents would need OCR
 - `MAX_DISTANCE` was tuned on a small test set of 27 questions written by me, so it may not generalise to other documents
 - Smaller chunks plus a strict cutoff can make answers to narrow questions shorter, because neighbouring chunks just outside the cutoff are dropped
@@ -164,7 +178,7 @@ I also read the full answers to a few questions before and after the change (jud
 
 - Use the cutoff only to decide whether to answer, then pass all top-K chunks to the model (may restore detail lost to smaller chunks)
 - Index new files without rebuilding the whole index
-- Web interface
+- Conversation memory so follow-up questions work
 
 ## Note on documents
 
