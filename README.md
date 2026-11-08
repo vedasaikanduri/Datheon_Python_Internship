@@ -1,6 +1,8 @@
 # docqa: Local PDF Question Answering with RAG
 
-A command-line tool that answers questions about a PDF using Retrieval-Augmented Generation (RAG), running **entirely on your own machine**. No API keys, no cloud services, and your documents never leave your computer.
+A command-line tool and web app that answers questions about your PDFs using Retrieval-Augmented Generation (RAG), running **entirely on your own machine**. No API keys, no cloud services, and your documents never leave your computer.
+
+![docqa web interface](docs/screenshot.png)
 
 ## Features
 
@@ -159,6 +161,8 @@ I also read the full answers to a few questions before and after the change (jud
 **Citations are written by code, not by the model.** An early version asked the model to cite `(file, page)` itself. It copied the example from the prompt instead of reading the real label: first it cited a file name that did not exist, and when the example was changed to a placeholder it printed the placeholder literally. Now each retrieved chunk is given a number, the model cites numbers like `[3]`, and the code replaces each number with the real file and page from the chunk's metadata. A citation can no longer be misspelt or invented.
 
 **Logic and interface are separate.** `docqa/pipeline.py` returns answers instead of printing them, so the command-line tool and the Streamlit app are thin layers over the same functions. Re-indexing clears the Chroma collection rather than deleting its folder, to avoid problems with a long-running app that may still have the database open.
+
+**The chain is built by hand.** The task suggested LangChain's `RetrievalQA` helper. I wrote the same steps explicitly (retrieve, filter by distance, build the prompt, call the model) so that the cutoff, the numbered passages and the citation swap are easy to see and control.
 
 **Two layers keep answers on topic.** A distance cutoff stops clearly unrelated questions before the model is called, and a strict prompt makes the model refuse when the retrieved text does not answer the question.
 
